@@ -1,0 +1,43 @@
+# render.yaml — Deploy Ask OLake to Render.com
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: ask-olake
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: standard          # Free plan has 512MB RAM which may not be enough for FAISS + fastembed
+    region: oregon
+    branch: main
+
+    # Persistent disk so the seeded index + incremental updates survive restarts
+    disk:
+      name: olake-data
+      mountPath: /data
+      sizeGB: 1
+
+    # Environment variables — set OPENROUTER_API_KEY in the Render dashboard
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: INDEX_DIR
+        value: /data/index
+      - key: APP_ENV
+        value: production
+      - key: PORT
+        value: "8000"
+      - key: CORS_ORIGINS
+        value: "*"                # Widen for hackathon judges; tighten for production
+      - key: OPENROUTER_API_KEY
+        sync: false               # ← Set this in the Render dashboard (secret)
+      - key: COHERE_API_KEY
+        sync: false               # ← Optional: set in Render dashboard if using Cohere
+      - key: GITHUB_TOKEN
+        sync: false               # ← Optional: set in Render dashboard
+      - key: ADMIN_TOKEN
+        generateValue: true       # Render auto-generates a secure random token
+
+    healthCheckPath: /healthz
+
+    autoDeploy: true

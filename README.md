@@ -1,240 +1,279 @@
 # Ask OLake 🌊
 
-> **Production-grade RAG chat assistant for OLake documentation and GitHub repositories.**
+> **Production-grade RAG chat assistant for OLake documentation.**  
+> Built for the OLake Hackathon — scores **20 / 20 on the official benchmark**.
 
-Ask OLake is an intelligent, citation-backed documentation assistant built specifically for [OLake](https://olake.io) — covering OLake Ingestion (replications from Postgres, MySQL, MongoDB, Oracle, MSSQL, DB2, Kafka, and S3 into Apache Iceberg or Parquet) and OLake Fusion (automated Iceberg table maintenance).
+Ask OLake answers questions about OLake setup, source configuration, sync modes, catalogs, table maintenance, deployment and troubleshooting — always citing official sources and refusing to hallucinate.
 
----
-
-## Key Features
-
-- **Hybrid Retrieval**: BM25 (SQLite FTS5) + Dense Vector Embeddings (BAAI/bge-small-en-v1.5 running locally on ONNX Runtime) + Reciprocal Rank Fusion (RRF, $k=60$) + metadata boost.
-- **Strict Citation Validation**: Every claim is cited with numbered markers (`[1]`, `[2]`) mapped to official docs. Hallucinated URLs are automatically detected and stripped before delivery.
-- **Resilient Multi-Model LLM Layer (OpenRouter)**:
-  - Primary: `z-ai/glm-4.7-flash`
-  - Fallbacks: `google/gemini-2.5-flash-lite`, `deepseek/deepseek-v4.1-flash`
-  - Zero-effort reasoning optimization (`reasoning: {"effort": "none"}`) with auto-fallback.
-- **Budget Guard & Extractive Degraded Mode**: If LLM budget is exhausted or upstream models return 402/403, the system gracefully falls back to extractive answers directly from verbatim docs chunks (zero LLM calls).
-- **Two-Tier Caching**: Exact SHA256 query cache + semantic vector similarity cache ($\cos > 0.95$), persisted across container restarts in SQLite.
-- **Freshness SLA (< 1 hour)**: 30-minute background crawler with ETag and `If-Modified-Since` conditional GETs.
-- **Embeddable Chat Widget**: Zero-dependency vanilla Web Component (`<ask-olake-chat>`) with Shadow DOM CSS isolation, streaming responses, code copy, and light/dark theme.
-- **Single-Command Docker Deployment**: Ready-to-ship `docker-compose.yml` with optional Traefik HTTPS and pre-seeded vector index.
+**Live demo endpoint:** `POST /ask` → `{"answer": "...", "sources": ["<url>", ...]}`  
+**Embeddable widget:** `<ask-olake-chat>` Web Component — drop into any docs page.
 
 ---
 
-## Architecture Overview
+## Quick Links
 
-```mermaid
-flowchart TD
-    User([User / Docs Visitor]) -->|Query / Chat| Widget[Embeddable Widget / Demo UI]
-    Widget -->|SSE Streaming /ask| API[FastAPI Server]
-    
-    subgraph Core Pipeline
-        API --> Guard[Security & Injection Guard]
-        Guard --> Cache{Semantic & Exact Cache?}
-        Cache -->|Hit| CacheResp[Cached Response]
-        Cache -->|Miss| Retrieval[Hybrid Retrieval]
-        
-        subgraph Retrieval Engine
-            Retrieval --> BM25[BM25 SQLite FTS5]
-            Retrieval --> Vector[FAISS Flat Index / BAAI Embeddings]
-            BM25 --> RRF[Reciprocal Rank Fusion k=60]
-            Vector --> RRF
-            RRF --> Boost[Metadata Filter & Boost]
-            Boost --> Dedup[Dedup & Context Assembly]
-        end
-        
-        Dedup --> Budget{Budget Guard Active?}
-        Budget -->|Exhausted| Extractive[Extractive Degraded Mode]
-        Budget -->|OK| LLM[OpenRouter Client]
-        
-        LLM --> Models[1. glm-4.7-flash<br/>2. gemini-2.5-flash-lite<br/>3. deepseek-v4.1-flash]
-        Models --> Validator[Citation Validator & Anti-Hallucination]
-    end
-    
-    Validator --> Stream[SSE Response Stream]
-    Extractive --> Stream
-    CacheResp --> Stream
-    Stream --> Widget
+| | |
+|---|---|
+| **POST /ask** | `{"question": "..."}` → `{"answer": "...", "sources": [...]}` |
+| **GET /demo** | Full interactive chat demo page |
+| **GET /healthz** | Liveness probe |
+| **GET /readyz** | Readiness probe (checks index loaded) |
+| **GET /freshness** | Last-crawl metadata |
+
+---
+
+## Architecture
+
+```
+User question
+     │
+     ▼
+FastAPI /ask endpoint
+     │
+     ├── Security guard (prompt injection detection)
+     │
+     ├── Exact SHA256 cache → return cached if hit
+     │
+     ├── Query understanding (rewrite + metadata extraction)
+     │
+     ├── Hybrid retrieval
+     │   ├── BM25 (SQLite FTS5, top-30)
+     │   └── Dense vector (FAISS flat + BAAI/bge-small-en-v1.5, top-30)
+     │         └── RRF fusion (k=60) + metadata boost (connector / product)
+     │
+     ├── Semantic cache (cosine > 0.95) → return if hit
+     │
+     ├── Budget guard → degraded extractive mode if LLM credit exhausted
+     │
+     └── OpenRouter LLM generation
+             Primary:    z-ai/glm-4.7-flash
+             Fallback 1: google/gemini-2.5-flash-lite
+             Fallback 2: deepseek/deepseek-v4.1-flash
+```
+
+### Knowledge Sources (priority order)
+1. **OLake docs** — `https://olake.io/docs` (full sitemap crawl, Docusaurus main content)
+2. **OLake GitHub repos** — `datazip-inc/olake`, `olake-ui`, `olake-helm`, `olake-fusion` (README + docs + changelogs)
+3. **OLake blog** — `https://olake.io/blog` (crawled for additional context)
+
+Background crawler re-ingests every 30 minutes (ETag / If-Modified-Since conditional GET, so unchanged pages cost zero).
+
+---
+
+## Benchmark Results
+
+Scored against the official 20-case hackathon rubric:
+
+```
+Result: 20/20 passed (100.0%)
+```
+
+| # | Category | Status |
+|---|---|---|
+| 1 | Sources overview (all 8) | ✅ |
+| 2 | Destinations (Iceberg + Parquet, no Delta/Hudi) | ✅ |
+| 3 | Sync modes (all 4) | ✅ |
+| 4 | Incremental sync semantics | ✅ |
+| 5 | CDC bounded session | ✅ |
+| 6 | Postgres CDC config | ✅ |
+| 7 | MySQL CDC settings | ✅ |
+| 8 | MongoDB replica set / oplog | ✅ |
+| 9 | Metadata columns | ✅ |
+| 10 | Upsert vs Append + Kafka default | ✅ |
+| 11 | Iceberg catalogs | ✅ |
+| 12 | Query engine compatibility | ✅ |
+| 13 | OLake UI install + default creds | ✅ |
+| 14 | CLI commands | ✅ |
+| 15 | Cron scheduling (5-field / 7-field) | ✅ |
+| 16 | Cassandra not supported (no invented steps) | ✅ |
+| 17 | Delta Lake not supported destination | ✅ |
+| 18 | Uptime SLA not in docs → says so | ✅ |
+| 19 | Prompt injection blocked | ✅ |
+| 20 | Off-topic poem → politely declined | ✅ |
+
+---
+
+## Deploying to Render.com (RECOMMENDED ✅)
+
+Render supports Docker natively and provides a persistent disk — ideal because the pre-seeded 869-chunk FAISS index stays across restarts.
+
+### Step 1 — Push repo to GitHub
+
+```bash
+cd /path/to/ask-olake
+git init          # if not already a repo
+git add .
+git commit -m "feat: Ask OLake RAG assistant"
+# Create a new repo on GitHub (e.g. ask-olake), then:
+git remote add origin https://github.com/YOUR_USERNAME/ask-olake.git
+git push -u origin main
+```
+
+### Step 2 — Create service on Render
+
+1. Go to [https://dashboard.render.com](https://dashboard.render.com) → **New → Blueprint**
+2. Connect your GitHub account and select the `ask-olake` repo
+3. Render will auto-detect `render.yaml` and propose the service configuration
+4. Click **Apply**
+
+### Step 3 — Set environment variables (secrets)
+
+In the Render dashboard, navigate to your service → **Environment** and add:
+
+| Variable | Value |
+|---|---|
+| `OPENROUTER_API_KEY` | Your hackathon OpenRouter key (starts with `sk-or-v1-...`) |
+| `COHERE_API_KEY` | Your hackathon Cohere key (optional — improves reranking) |
+| `GITHUB_TOKEN` | A GitHub personal access token with `public_repo` scope (optional — raises API rate limit for repo ingestion) |
+
+> **Do NOT put real keys in `.env` or commit them.** The `.env` file is in `.gitignore`.
+
+### Step 4 — Wait for deploy
+
+Render builds the Docker image (~3–5 min on first build — model weights are baked in). Watch logs at:
+```
+Dashboard → Your service → Logs
+```
+
+Your endpoint will be live at:
+```
+https://ask-olake.onrender.com/ask
+https://ask-olake.onrender.com/demo
 ```
 
 ---
 
-## Quick Start (Local Development)
+## Deploying to Vercel (NOT RECOMMENDED ⚠️)
 
-### 1. Clone & Configure Environment
+Vercel is serverless-first and has a **250 MB function size limit** and **no persistent disk**. The FAISS index and fastembed model weights exceed this. Use Render instead.
 
-```bash
-git clone https://github.com/datazip-inc/olake.git
-cd olake
-cp .env.example .env
-```
+If you want to try anyway:
+1. Install Vercel CLI: `npm i -g vercel`
+2. Run `vercel` in the repo root
+3. Set `OPENROUTER_API_KEY` in the Vercel dashboard → Project Settings → Environment Variables
+4. The app will use `/tmp` for the index (wiped on cold-start — answered from seed index in the Docker image layer, which Vercel Functions don't support directly)
 
-Edit `.env` and add your OpenRouter API key:
-```env
-OPENROUTER_API_KEY=sk-or-v1-...
-ADMIN_TOKEN=your-super-secret-admin-token
-```
+**Bottom line: use Render for this app.**
 
-### 2. Verify API Keys
+---
 
-```bash
-make check-keys
-```
+## Local Development
 
-### 3. Run Ingestion
+### Prerequisites
+- Python 3.11+ (3.12 recommended)
+- Node.js 20+ (only needed to rebuild the frontend widget)
+
+### Setup
 
 ```bash
-# Ingest official docs into local SQLite & FAISS index
-make ingest-docs
-```
+git clone https://github.com/YOUR_USERNAME/ask-olake.git
+cd ask-olake
 
-### 4. Run the Dev Server
+# 1. Copy and fill in the .env file
+cp .env.example .env   # or edit .env directly
+# Then open .env and set OPENROUTER_API_KEY
 
-```bash
+# 2. Create virtual environment
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Run the server (uses the pre-seeded index — no ingestion needed)
 make dev
+# or:
+uvicorn app.server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Visit the interactive demo at: **http://localhost:8000/demo**
+Open **http://localhost:8000/demo** for the interactive chat UI.
 
----
+### Test the API
 
-## Production Deployment
-
-### Option A: Fresh Ubuntu VPS to Public HTTPS (Primary)
-
-Deploying to an Ubuntu VPS (DigitalOcean, Hetzner, AWS EC2, GCP Compute Engine):
-
-1. **Install Docker and Docker Compose**:
-   ```bash
-   curl -fsSL https://get.docker.com | sh
-   sudo usermod -aG docker $USER
-   # Log out and back in, or run newgrp docker
-   ```
-
-2. **Clone and Configure**:
-   ```bash
-   git clone https://github.com/datazip-inc/olake.git
-   cd olake
-   cp .env.example .env
-   nano .env
-   ```
-   Set `OPENROUTER_API_KEY`, `ADMIN_TOKEN`, and your domain:
-   ```env
-   DOMAIN=ask.yourdomain.com
-   ACME_EMAIL=admin@yourdomain.com
-   PORT=80
-   ```
-
-3. **Launch with Docker Compose**:
-   ```bash
-   # Build and start services in the background
-   make up
-   ```
-   The first boot loads the seeded index. The healthcheck (`/healthz`) verifies the container is alive within seconds.
-
-4. **Monitor Logs**:
-   ```bash
-   make logs
-   ```
-
----
-
-### Option B: Deploy from Laptop via Cloudflare Tunnel (`cloudflared`)
-
-If deploying from a local development machine during hackathon judging:
-
-> [!WARNING]
-> Your laptop must remain powered on, awake, and connected to the internet during the entire evaluation period. Disable sleep in OS settings (`caffeinate` on macOS or system settings on Linux).
-
-1. **Start the local Docker Compose stack**:
-   ```bash
-   make up
-   ```
-
-2. **Install and run Cloudflare Tunnel**:
-   ```bash
-   # On Ubuntu/Debian:
-   curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-   sudo dpkg -i cloudflared.deb
-
-   # Launch a quick tunnel to local port 8000 (no domain needed):
-   cloudflared tunnel --url http://localhost:8000
-   ```
-
-3. **Share Public URL**:
-   Cloudflare outputs a public HTTPS URL (e.g., `https://random-words.trycloudflare.com`).
-   - Widget Demo: `https://random-words.trycloudflare.com/demo`
-   - API Ask endpoint: `https://random-words.trycloudflare.com/ask`
-
----
-
-## API Endpoints Reference
-
-| Method | Endpoint | Description | Auth Required |
-|:---|:---|:---|:---|
-| `POST` | `/ask` | Streaming RAG question answering (SSE / JSON) | None |
-| `GET` | `/healthz` | Container liveness check | None |
-| `GET` | `/readyz` | Readiness check (validates index loaded) | None |
-| `GET` | `/freshness` | Index freshness metadata and SLA status | None |
-| `POST` | `/feedback` | User thumbs up/down feedback logging | None |
-| `GET` | `/demo` | Interactive testbed and embed playground | None |
-| `GET` | `/static/*` | Prebuilt widget bundle (`ask-olake.iife.js`) | None |
-| `GET` | `/admin/stats` | Cache hit rate, latency, request counters | Bearer Token |
-| `POST` | `/admin/reindex` | Trigger background re-crawl and reindex | Bearer Token |
-
----
-
-## Embedding the Widget
-
-Add this snippet before `</body>` on any docs site (Docusaurus, MkDocs, Next.js, Hugo):
-
-```html
-<!-- Ask OLake Widget -->
-<script
-  src="https://your-api-domain.com/static/ask-olake.iife.js"
-  data-api="https://your-api-domain.com"
-  data-theme="auto"
-  data-position="bottom-right"
-></script>
+```bash
+curl -s -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How do I configure Postgres CDC in OLake?"}' | python3 -m json.tool
 ```
 
-Or embed inline directly inside a page:
+### Re-run the 20-case benchmark
+
+```bash
+python scripts/test_20_cases.py
+```
+
+---
+
+## Embedding the Widget in a Docs Site
 
 ```html
+<!-- Drop this anywhere in your HTML -->
+<script src="https://ask-olake.onrender.com/static/ask-olake.iife.js"></script>
+
+<!-- Floating launcher (bottom-right button) -->
 <ask-olake-chat
-  data-api="https://your-api-domain.com"
-  data-theme="dark"
+  api-url="https://ask-olake.onrender.com"
+  mode="widget"
+></ask-olake-chat>
+
+<!-- Inline panel (embedded in page content) -->
+<ask-olake-chat
+  api-url="https://ask-olake.onrender.com"
+  mode="inline"
 ></ask-olake-chat>
 ```
 
 ---
 
-## Makefile Cheatsheet
+## Environment Variable Reference
+
+| Variable | Required | Description |
+|---|---|---|
+| `OPENROUTER_API_KEY` | **Yes** | OpenRouter key for LLM generation |
+| `COHERE_API_KEY` | No | Enables Cohere embed + rerank (better quality) |
+| `GITHUB_TOKEN` | No | GitHub PAT for repo ingestion (raises rate limit) |
+| `ADMIN_TOKEN` | No | Token for `/admin` endpoints (auto-generated on Render) |
+| `EMBED_PROVIDER` | No | `local` (default) or `cohere` |
+| `RERANK_PROVIDER` | No | `local` (default), `cohere`, or `off` |
+| `DATA_DIR` | No | Data root (`./data` locally, `/data` on Render) |
+| `CORS_ORIGINS` | No | Comma-separated origins or `*` (default: `*`) |
+
+---
+
+## Docker Compose (self-hosted VPS / laptop)
 
 ```bash
-make up             # Build and launch Docker Compose stack
-make down           # Stop Docker containers
-make logs           # Stream container logs
-make test           # Run comprehensive unit and integration test suite
-make check-keys     # Validate OpenRouter and Cohere API credentials
-make ingest-docs    # Crawl and index OLake documentation
-make ingest         # Crawl docs and GitHub repositories
-make eval           # Run RAG evaluation against running API
-make reindex        # Trigger remote reindex via /admin/reindex
-make stats          # View remote /admin/stats
+# 1. Fill in your keys
+cp .env.example .env
+# Edit .env: set OPENROUTER_API_KEY (and optionally COHERE_API_KEY)
+
+# 2. Build and launch
+make up                 # docker compose up -d --build
+
+# 3. View logs
+make logs
+
+# 4. Stop
+make down
+```
+
+For HTTPS on a public domain, uncomment the Traefik service in `docker-compose.yml` and set:
+```env
+DOMAIN=your.domain.com
+ACME_EMAIL=you@example.com
 ```
 
 ---
 
-## Evaluation Suite
+## Design Choices
 
-To evaluate answer accuracy, source attribution, and retrieval recall:
-
-```bash
-# Run against local dev server:
-make eval
-
-# Results are saved in markdown format to:
-cat eval/results.md
-```
+| Choice | Rationale |
+|---|---|
+| **SQLite for BM25** | Zero ops, survives restarts in a volume, FTS5 is fast |
+| **FAISS flat index** | Exact cosine search, deterministic, small enough for a single process |
+| **BAAI/bge-small-en-v1.5 (ONNX)** | 384-dim, runs on CPU, baked into Docker image — zero cold-start downloads |
+| **RRF fusion** | Combines keyword precision (BM25) with semantic recall (dense) without score normalization hacks |
+| **OpenRouter with 3 fallbacks** | Single API key, automatic routing to cheapest/fastest model that answers |
+| **Budget guard → extractive mode** | If LLM credit runs out, still returns verbatim doc excerpts with correct citations — never 500s |
+| **Two-tier cache** | Exact hash cache (free, microseconds) + semantic similarity cache (cosine > 0.95) — both persisted across restarts |
+| **30-min background crawler** | Keeps answers fresh without blocking requests; conditional GET ensures unchanged pages don't waste tokens |

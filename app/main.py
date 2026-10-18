@@ -104,10 +104,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_json_handler)
 
     # CORS
+    cors_list = cfg.cors_origins_list
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cfg.cors_origins_list,
-        allow_credentials=True,
+        allow_origins=cors_list,
+        allow_credentials="*" not in cors_list,  # credentials only if not wildcard
         allow_methods=["*"],
         allow_headers=["*"],
     )

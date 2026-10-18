@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     max_concurrent_requests: int = 16
 
     # CORS
-    cors_origins: str = "http://localhost:3000,http://localhost:8000,https://olake.io"
+    cors_origins: str = "*"  # Allows all origins; narrow to specific domains in production
 
     # Admin
     admin_token: str = "change_me_before_production"
@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     max_context_tokens: int = 3000
     max_output_tokens: int = 500
     llm_temperature: float = 0.1
+    enable_groundedness_check: bool = False
 
     # Freshness
     sync_interval_min: int = 30
@@ -75,6 +76,8 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
+        if self.cors_origins.strip() == "*":
+            return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
