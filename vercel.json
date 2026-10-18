@@ -1,24 +1,10 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30,
+      "excludeFiles": "{tests/**,eval/**,node_modules/**,.git/**,widget/src/**}"
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api/index.py"
-    }
-  ],
-  "env": {
-    "APP_ENV": "production",
-    "DATA_DIR": "data",
-    "INDEX_DIR": "data/index",
-    "EMBED_PROVIDER": "local",
-    "RERANK_PROVIDER": "off",
-    "RERANK": "off",
-    "SYNC_INTERVAL_MIN": "99999"
   }
 }
