@@ -11,9 +11,10 @@ build/
 .ruff_cache/
 node_modules/
 frontend/dist/
-data/index/
+# Allow prebuilt seed index
+!data/index/
+!data/index/**
 data/cache/
-*.db
 *.db-shm
 *.db-wal
 .DS_Store
