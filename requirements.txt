@@ -14,6 +14,8 @@ markdownify
 rank-bm25
 gitpython
 cohere
+fastembed
+numpy
 pytest
 pytest-asyncio
 anyio

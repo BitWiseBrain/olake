@@ -246,8 +246,11 @@ async def retrieve(
         texts = [c.content[:1000] for c in ordered]
         try:
             scores = await emb_mod.rerank(query, texts, top_n=cfg.rerank_top_k)
-            paired = sorted(zip(scores, ordered), key=lambda x: x[0], reverse=True)
-            ordered = [c for _, c in paired[:cfg.rerank_top_k]]
+            if any(s != 0.0 for s in scores):
+                paired = sorted(zip(scores, ordered), key=lambda x: x[0], reverse=True)
+                ordered = [c for _, c in paired[:cfg.rerank_top_k]]
+            else:
+                ordered = ordered[:cfg.rerank_top_k]
         except Exception as e:
             log.warning(f"Rerank failed: {e}")
             ordered = ordered[:cfg.rerank_top_k]

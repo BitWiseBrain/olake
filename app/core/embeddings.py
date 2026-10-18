@@ -55,12 +55,14 @@ def _load_local_reranker():
         with _local_lock:
             if _local_reranker is None:
                 try:
-                    from fastembed import TextCrossEncoder
-                    log.info("Loading local reranker: Xenova/ms-marco-MiniLM-L-6-v2")
+                    try:
+                        from fastembed.rerank.cross_encoder import TextCrossEncoder
+                    except ImportError:
+                        from fastembed import TextCrossEncoder
                     _local_reranker = TextCrossEncoder(model_name="Xenova/ms-marco-MiniLM-L-6-v2")
                     log.info("Local reranker loaded")
                 except Exception as e:
-                    log.warning(f"Local reranker unavailable: {e}")
+                    log.debug(f"Local cross-encoder unavailable ({e}); using RRF reciprocal rank fusion")
                     _local_reranker = None
     return _local_reranker
 
