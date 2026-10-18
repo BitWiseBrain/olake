@@ -6,6 +6,7 @@
   <title>Ask OLake — Demo</title>
   <meta name="description" content="Interactive demo of the Ask OLake RAG documentation assistant">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><text y='32' font-size='32'>🌊</text></svg>">
+  <script src="/static/ask-olake.iife.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     :root {
@@ -198,7 +199,6 @@
     <div class="demo-label">Try inline mode ↓</div>
     <div class="inline-demo">
       <ask-olake-chat
-        api="http://localhost:8000"
         theme="auto"
         mode="inline"
       ></ask-olake-chat>

@@ -411,16 +411,33 @@ const WIDGET_CSS = `
   }
 
   /* Inline mode */
-  :host([mode="inline"]) .launcher { display: none; }
-  :host([mode="inline"]) .panel {
-    position: relative;
-    bottom: auto; right: auto;
-    width: 100%; height: 500px;
-    transform: none;
-    opacity: 1;
-    box-shadow: none;
+  :host([mode="inline"]) {
+    display: block;
+    width: 100%;
   }
-  :host([mode="inline"]) .panel.hidden { display: none; }
+  :host([mode="inline"]) .launcher { display: none !important; }
+  :host([mode="inline"]) .panel {
+    display: flex !important;
+    position: relative !important;
+    bottom: auto !important; right: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 580px !important;
+    max-height: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+  :host([mode="inline"]) .panel.hidden {
+    display: flex !important;
+    transform: none !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+  :host([mode="inline"]) #close-btn { display: none !important; }
 
   @media (max-width: 480px) {
     .panel { width: 100vw; max-width: 100vw; right: 0; bottom: 80px; border-radius: 16px 16px 0 0; }
@@ -522,7 +539,7 @@ class AskOlakeWidget extends HTMLElement {
   }
 
   connectedCallback() {
-    this.apiBase = this.getAttribute('data-api') || this.getAttribute('api') || 'http://localhost:8000';
+    this.apiBase = this.getAttribute('data-api') || this.getAttribute('api') || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000');
     const theme = this.getAttribute('data-theme') || this.getAttribute('theme') || 'auto';
     const position = this.getAttribute('data-position') || 'bottom-right';
     const mode = this.getAttribute('mode') || 'floating';
@@ -536,11 +553,15 @@ class AskOlakeWidget extends HTMLElement {
         else this.removeAttribute('theme');
       });
     }
-    if (mode !== 'floating') this.setAttribute('mode', mode);
+    this.setAttribute('mode', mode);
 
     this.render();
     this.loadHistory();
     this.setupKeyboard();
+
+    if (mode === 'inline') {
+      this.open();
+    }
   }
 
   private render() {
@@ -841,8 +862,11 @@ customElements.define('ask-olake-chat', AskOlakeWidget);
 function autoMount() {
   const scripts = document.querySelectorAll('script[data-api]');
   scripts.forEach(script => {
-    if (!document.querySelector('ask-olake-chat')) {
+    const hasFloating = Array.from(document.querySelectorAll('ask-olake-chat'))
+      .some(el => el.getAttribute('mode') !== 'inline');
+    if (!hasFloating) {
       const widget = document.createElement('ask-olake-chat') as AskOlakeWidget;
+      widget.setAttribute('mode', 'floating');
       ['data-api', 'data-theme', 'data-position'].forEach(attr => {
         const val = script.getAttribute(attr);
         if (val) widget.setAttribute(attr, val);
