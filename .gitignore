@@ -10,7 +10,9 @@ dist/
 build/
 .ruff_cache/
 node_modules/
-frontend/dist/
+# Prebuilt frontend bundle
+!frontend/dist/
+!frontend/dist/**
 # Allow prebuilt seed index
 !data/index/
 !data/index/**
