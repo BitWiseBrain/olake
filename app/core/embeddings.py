@@ -38,10 +38,14 @@ def _load_local_embedder():
     if _local_embedder is None:
         with _local_lock:
             if _local_embedder is None:
-                from fastembed import TextEmbedding
-                log.info("Loading local embedding model: BAAI/bge-small-en-v1.5")
-                _local_embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
-                log.info("Local embedding model loaded")
+                try:
+                    from fastembed import TextEmbedding
+                    log.info("Loading local embedding model: BAAI/bge-small-en-v1.5")
+                    _local_embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+                    log.info("Local embedding model loaded")
+                except Exception as e:
+                    log.warning(f"Local embedding model unavailable: {e}")
+                    _local_embedder = None
     return _local_embedder
 
 
@@ -78,6 +82,8 @@ def embed_documents_local(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
     embedder = _load_local_embedder()
+    if embedder is None:
+        return [[0.0] * _BGE_INFO.dim for _ in texts]
     return [r.tolist() for r in embedder.embed(texts)]
 
 
@@ -118,6 +124,8 @@ async def embed_documents(
 
 def embed_query_local(text: str) -> list[float]:
     embedder = _load_local_embedder()
+    if embedder is None:
+        return [0.0] * _BGE_INFO.dim
     prefixed = _BGE_QUERY_PREFIX + text
     return list(embedder.embed([prefixed]))[0].tolist()
 

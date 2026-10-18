@@ -372,17 +372,21 @@ async def ask(request: Request, body: AskRequest = Body(...)):
             return AskResponse(answer=answer, sources=[])
 
         # ── Semantic cache ──────────────────────────────────────────────────
+        q_vec = None
         if cfg.enable_semantic_cache:
-            from app.core.embeddings import embed_query as _embed_query
-            q_vec, _ = await _embed_query(qu.standalone_query, index_dir=cfg.index_path)
-            sem_cached = store.cache_get_semantic(q_vec, threshold=0.95)
-            if sem_cached:
-                timer.mark("cache_semantic")
-                record_request(cache_hit_semantic=True, latency_ms=timer.total_ms())
-                log.info("Cache hit (semantic)", extra={"latency": timer.to_dict()})
-                return AskResponse(answer=sem_cached["answer"], sources=sem_cached["sources"])
-        else:
-            q_vec = None
+            try:
+                from app.core.embeddings import embed_query as _embed_query
+                q_vec, _ = await _embed_query(qu.standalone_query, index_dir=cfg.index_path)
+                if q_vec and any(v != 0.0 for v in q_vec):
+                    sem_cached = store.cache_get_semantic(q_vec, threshold=0.95)
+                    if sem_cached:
+                        timer.mark("cache_semantic")
+                        record_request(cache_hit_semantic=True, latency_ms=timer.total_ms())
+                        log.info("Cache hit (semantic)", extra={"latency": timer.to_dict()})
+                        return AskResponse(answer=sem_cached["answer"], sources=sem_cached["sources"])
+            except Exception as e:
+                log.info(f"Semantic cache skipped: {e}")
+                q_vec = None
 
         # ── Retrieval ────────────────────────────────────────────────────────
         from app.rag.retrieval import retrieve
@@ -420,10 +424,7 @@ async def ask(request: Request, body: AskRequest = Body(...)):
         timer.mark("generate")
 
         # ── Cache store ──────────────────────────────────────────────────────
-        if cfg.enable_semantic_cache and sources:
-            if q_vec is None:
-                from app.core.embeddings import embed_query as _embed_query
-                q_vec, _ = await _embed_query(qu.standalone_query, index_dir=cfg.index_path)
+        if cfg.enable_semantic_cache and sources and q_vec and any(v != 0.0 for v in q_vec):
             try:
                 store.cache_set(
                     normalized, q_hash, q_vec, answer, sources,
