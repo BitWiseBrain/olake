@@ -130,6 +130,21 @@ async def call_ask_api(client: httpx.AsyncClient, api_base: str, question: str) 
         if resp.status_code == 200:
             return resp.json(), latency
         return {"error": f"HTTP {resp.status_code}", "answer": "", "sources": []}, latency
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        # Fallback to in-process ASGI app
+        try:
+            from app.main import create_app
+            app = create_app()
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as local_client:
+                resp = await local_client.post("/ask", json={"question": question}, timeout=30.0)
+                latency = (time.perf_counter() - start) * 1000
+                if resp.status_code == 200:
+                    return resp.json(), latency
+                return {"error": f"HTTP {resp.status_code}", "answer": "", "sources": []}, latency
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return {"error": str(e), "answer": "", "sources": []}, latency
     except Exception as e:
         latency = (time.perf_counter() - start) * 1000
         return {"error": str(e), "answer": "", "sources": []}, latency
@@ -213,7 +228,22 @@ async def run_eval(
 
             print(f"  [{i+1}/{len(questions)}] {question[:60]}...", end="", flush=True)
 
-            resp, latency_ms = await call_ask_api(client, api_base, question)
+            if retrieval_only:
+                from app.rag.retrieval import retrieve
+                from app.core.store import get_store
+                from app.rag.query import is_injection_attempt, is_smalltalk, is_out_of_scope
+                t0 = time.perf_counter()
+                if is_injection_attempt(question) or is_out_of_scope(question):
+                    answer = "I can only answer questions about OLake."
+                    sources = []
+                else:
+                    ret_res = await retrieve(question, store=get_store())
+                    answer = "retrieved context"
+                    sources = [c.url + (c.anchor if c.anchor else "") for c in ret_res.chunks]
+                latency_ms = (time.perf_counter() - t0) * 1000
+                resp = {"answer": answer, "sources": sources}
+            else:
+                resp, latency_ms = await call_ask_api(client, api_base, question)
             latencies.append(latency_ms)
 
             answer = resp.get("answer", "")
