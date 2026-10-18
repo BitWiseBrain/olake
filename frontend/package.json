@@ -1,0 +1,13 @@
+{
+  "name": "ask-olake-widget",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "typescript": "^5.5.3"
+  }
+}

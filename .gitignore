@@ -1,0 +1,21 @@
+# .gitignore
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.ruff_cache/
+node_modules/
+frontend/dist/
+data/index/
+data/cache/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+*.so
+*.log

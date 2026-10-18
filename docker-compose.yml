@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: ask-olake:latest
+    container_name: ask-olake-api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - DATA_DIR=/data
+      - INDEX_DIR=/data/index
+      - APP_ENV=production
+    volumes:
+      - olake-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    networks:
+      - olake-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.olake.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.olake.entrypoints=websecure"
+      - "traefik.http.routers.olake.tls.certresolver=letsencrypt"
+      - "traefik.http.services.olake.loadbalancer.server.port=8000"
+
+  # Optional: Traefik reverse proxy with automatic HTTPS
+  # Uncomment and set DOMAIN env var to enable
+  # traefik:
+  #   image: traefik:v3.2
+  #   container_name: ask-olake-traefik
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   command:
+  #     - --entrypoints.web.address=:80
+  #     - --entrypoints.websecure.address=:443
+  #     - --providers.docker=true
+  #     - --providers.docker.exposedbydefault=false
+  #     - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+  #     - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
+  #     - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - traefik-certs:/letsencrypt
+  #   networks:
+  #     - olake-net
+
+volumes:
+  olake-data:
+    name: ask-olake-data
+  # traefik-certs:
+
+networks:
+  olake-net:
+    driver: bridge
