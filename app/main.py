@@ -1,5 +1,4 @@
 """FastAPI application: all endpoints, middleware, startup/shutdown."""
-from __future__ import annotations
 
 import asyncio
 import hashlib
@@ -7,7 +6,7 @@ import re
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, Header
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -197,6 +196,11 @@ class FeedbackRequest(BaseModel):
     comment: str = ""
 
 
+AskRequest.model_rebuild()
+AskResponse.model_rebuild()
+FeedbackRequest.model_rebuild()
+
+
 # ── Router ────────────────────────────────────────────────────────────────────
 
 from fastapi import APIRouter
@@ -259,7 +263,7 @@ async def freshness():
 
 @router.post("/ask", response_model=AskResponse)
 @limiter.limit("120/minute")
-async def ask(request: Request, body: AskRequest):
+async def ask(request: Request, body: AskRequest = Body(...)):
     """Main RAG endpoint. Returns exactly {answer, sources}."""
     timer = LatencyTimer()
     cfg = get_settings()
@@ -352,12 +356,10 @@ async def ask(request: Request, body: AskRequest):
                 standalone_query=qu.standalone_query,
             )
         except llm_mod.LLMError as e:
-            log.error(f"LLM error: {e}")
-            record_request(error=True, latency_ms=timer.total_ms())
-            return JSONResponse(
-                status_code=503,
-                content={"error": "generation_failed", "detail": "LLM unavailable. Try again shortly."},
-            )
+            log.warning(f"LLM error: {e} — falling back to extractive degraded mode")
+            from app.rag.generator import build_extractive_answer
+            answer, sources = build_extractive_answer(question, retrieval.chunks)
+            usage = {"mode": "extractive_degraded", "error": str(e)}
         timer.mark("generate")
 
         # ── Cache store ──────────────────────────────────────────────────────
@@ -397,7 +399,7 @@ async def ask(request: Request, body: AskRequest):
 
 
 @router.post("/feedback")
-async def feedback(body: FeedbackRequest):
+async def feedback(body: FeedbackRequest = Body(...)):
     """Thumbs up/down feedback. Logged only, not stored in a hot path."""
     log.info(
         "Feedback received",
@@ -414,7 +416,7 @@ async def feedback(body: FeedbackRequest):
 async def reindex(
     request: Request,
     authorization: str = Header(default=""),
-    body: dict = {},
+    body: dict = Body(default={}),
 ):
     """Trigger incremental reindex. Protected by bearer token."""
     cfg = get_settings()
