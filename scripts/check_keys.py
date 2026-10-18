@@ -15,14 +15,16 @@ import os
 import sys
 from pathlib import Path
 
-# Load .env if present
+# Load .env if present (overrides any stale shell environment variables)
 env_file = Path(__file__).parent.parent / ".env"
 if env_file.exists():
     for line in env_file.read_text().splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, _, v = line.partition("=")
-            os.environ.setdefault(k.strip(), v.strip())
+            val = v.strip().strip("'\"")
+            if val:
+                os.environ[k.strip()] = val
 
 import httpx
 
