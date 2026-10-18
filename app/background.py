@@ -106,9 +106,10 @@ async def start_background_poller(interval_min: int = 30) -> None:
     """Start the background sync loop."""
     log.info(f"Background sync poller starting (interval={interval_min}min)")
 
-    # Run an initial sync on startup
-    await asyncio.sleep(5)  # Let server fully start
-    await run_sync()
+    # Seed index is already loaded into SQLite/memory; initialize state cleanly
+    if _state.last_sync_at == 0:
+        _state.last_sync_at = time.time()
+        _state.last_sync_ok = True
 
     while True:
         await asyncio.sleep(interval_min * 60)

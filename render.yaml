@@ -29,6 +29,10 @@ services:
         value: "8000"
       - key: CORS_ORIGINS
         value: "*"                # Widen for hackathon judges; tighten for production
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: WEB_CONCURRENCY
+        value: "1"
       - key: OPENROUTER_API_KEY
         sync: false               # ← Set this in the Render dashboard (secret)
       - key: COHERE_API_KEY

@@ -51,6 +51,8 @@ COPY --chown=olake:olake data/ /data/
 ENV DATA_DIR=/data \
     INDEX_DIR=/data/index \
     FASTEMBED_CACHE_PATH=/app/.cache/fastembed \
+    MALLOC_ARENA_MAX=2 \
+    PYTHONUNBUFFERED=1 \
     HOST=0.0.0.0 \
     PORT=8000 \
     APP_ENV=production
@@ -62,4 +64,4 @@ USER olake
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--timeout-keep-alive", "30"]
+CMD ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "30"]
