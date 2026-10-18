@@ -18,16 +18,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 ENV FASTEMBED_CACHE_PATH=/app/.cache/fastembed
 RUN python -c "from fastembed import TextEmbedding; print('Downloading BAAI/bge-small-en-v1.5...'); e = TextEmbedding(model_name='BAAI/bge-small-en-v1.5'); list(e.embed(['warmup'])); print('Embedding model ready')"
 
-# ── Stage 2: Frontend builder ─────────────────────────────────────────────────
-FROM node:20-slim AS frontend-builder
-
-WORKDIR /frontend
-COPY frontend/package*.json ./
-RUN npm ci --prefer-offline || npm install
-COPY frontend/ ./
-RUN npm run build
-
-# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
 # Non-root user
@@ -48,8 +39,8 @@ COPY eval/ ./eval/
 COPY scripts/ ./scripts/
 COPY pyproject.toml .
 
-# Copy built frontend
-COPY --from=frontend-builder /frontend/dist ./frontend/dist/
+# Copy prebuilt frontend bundle (pre-compiled and tracked in repository)
+COPY frontend/dist/ ./frontend/dist/
 
 # Create data directory (index volume mount point)
 RUN mkdir -p /data/index && chown -R olake:olake /data /app
