@@ -1,5 +1,7 @@
 # Ask OLake 🌊
 
+https://olake.onrender.com
+
 > **Production-grade RAG chat assistant for OLake documentation.**  
 > Built for the OLake Hackathon — scores **20 / 20 on the official benchmark**.
 
