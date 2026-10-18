@@ -13,9 +13,7 @@ lxml
 markdownify
 rank-bm25
 gitpython
-fastembed
 cohere
 pytest
 pytest-asyncio
 anyio
-faiss-cpu

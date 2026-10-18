@@ -87,13 +87,17 @@ class ChunkStore:
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
         return conn
 
     def _init_db(self) -> None:
-        with _db_lock, self._conn() as conn:
-            conn.executescript("""
+        try:
+            with _db_lock, self._conn() as conn:
+                conn.executescript("""
                 CREATE TABLE IF NOT EXISTS chunks (
                     id TEXT PRIMARY KEY,
                     url TEXT NOT NULL,
@@ -146,6 +150,8 @@ class ChunkStore:
                 );
             """)
             conn.commit()
+        except Exception as e:
+            log.warning(f"DB schema init skipped (likely readonly db): {e}")
 
     def upsert_chunk(self, chunk: Chunk) -> bool:
         """Insert or update a chunk. Returns True if changed."""
@@ -392,6 +398,37 @@ class ChunkStore:
         )
 
 
+def _resolve_db_path(index_path: str) -> str:
+    target_tmp = "/tmp/chunks.db"
+    possible_sources = [
+        os.path.join(index_path, "chunks.db"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "index", "chunks.db"),
+    ]
+    src = None
+    for p in possible_sources:
+        if os.path.exists(p):
+            src = p
+            break
+
+    is_vercel = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+    is_readonly = src and not os.access(os.path.dirname(src), os.W_OK)
+
+    if (is_vercel or is_readonly) and src:
+        try:
+            if not os.path.exists(target_tmp) or os.path.getsize(target_tmp) != os.path.getsize(src):
+                import shutil
+                shutil.copyfile(src, target_tmp)
+                log.info(f"Copied DB from {src} to {target_tmp} for serverless execution")
+            return target_tmp
+        except Exception as e:
+            log.warning(f"Could not copy DB to /tmp, using {src}: {e}")
+            return src
+
+    if src:
+        return src
+    return os.path.join(index_path, "chunks.db")
+
+
 _store: ChunkStore | None = None
 
 
@@ -400,6 +437,6 @@ def get_store() -> ChunkStore:
     if _store is None:
         from app.config import get_settings
         cfg = get_settings()
-        db_path = os.path.join(cfg.index_path, "chunks.db")
+        db_path = _resolve_db_path(cfg.index_path)
         _store = ChunkStore(db_path)
     return _store

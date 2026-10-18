@@ -46,16 +46,15 @@ async def lifespan(app: FastAPI):
 
     _semaphore = asyncio.Semaphore(cfg.max_concurrent_requests)
 
-    # Preload models
+    # Preload local embedding models (optional — skip gracefully on Vercel/serverless)
     try:
         from app.core.embeddings import preload_models
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, preload_models)
     except Exception as e:
-        log.error(f"Model preload failed: {e}")
-        _startup_error = str(e)
+        log.info(f"Model preload skipped (will use BM25-only or API embeddings): {e}")
 
-    # Load vector index
+    # Load vector index (optional — BM25 works without it)
     try:
         from app.rag.retrieval import load_vector_index
         store = get_store()
@@ -63,9 +62,12 @@ async def lifespan(app: FastAPI):
         _index_loaded = True
         log.info(f"Index loaded: {store.count_chunks()} chunks")
     except Exception as e:
-        log.error(f"Index load failed: {e}")
-        _startup_error = str(e)
-        _index_loaded = False
+        log.warning(f"Vector index load skipped: {e}")
+        # Mark loaded if we have chunks (BM25 is sufficient)
+        try:
+            _index_loaded = get_store().count_chunks() > 0
+        except Exception:
+            _index_loaded = False
 
     # Initial budget check
     asyncio.create_task(llm_mod.check_budget())
@@ -209,6 +211,7 @@ router = APIRouter()
 
 
 @router.get("/healthz")
+@router.get("/livez")
 async def healthz():
     """Liveness probe."""
     return {"status": "ok", "ts": time.time()}
@@ -228,7 +231,8 @@ async def readyz():
     fresh = is_fresh(cfg.freshness_degraded_secs)
 
     issues = []
-    if not _index_loaded:
+    is_loaded = _index_loaded or (chunk_count > 0)
+    if not is_loaded:
         issues.append("index_not_loaded")
     if chunk_count == 0:
         issues.append("empty_index")
@@ -262,15 +266,67 @@ async def freshness():
     return freshness_info()
 
 
+@router.get("/version")
+async def version():
+    """Return the deployed commit SHA and deployment ID."""
+    commit = (
+        os.environ.get("VERCEL_GIT_COMMIT_SHA")
+        or os.environ.get("RENDER_GIT_COMMIT")
+        or os.environ.get("GIT_COMMIT")
+        or ""
+    )
+    if not commit:
+        try:
+            import subprocess
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            pass
+
+    deployment = (
+        os.environ.get("VERCEL_DEPLOYMENT_ID")
+        or os.environ.get("RENDER_INSTANCE_ID")
+        or os.environ.get("RENDER_SERVICE_ID")
+        or (f"dpl_{commit[:12]}" if commit else "")
+    )
+    return {
+        "commit": commit,
+        "deployment": deployment,
+    }
+
+
+@router.get("/models")
+async def models_route():
+    """Return the OpenRouter model IDs available to this API key (live from OpenRouter)."""
+    import httpx as _httpx
+    cfg = get_settings()
+    api_key = cfg.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        return JSONResponse(status_code=500, content={"error": "OPENROUTER_API_KEY not set"})
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://openrouter.ai/api/v1/models/user",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        return {"models": [m["id"] for m in data]}
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": str(e)})
+
+
 @router.post("/ask", response_model=AskResponse)
 @limiter.limit("120/minute")
 async def ask(request: Request, body: AskRequest = Body(...)):
     """Main RAG endpoint. Returns exactly {answer, sources}."""
+    global _semaphore
     timer = LatencyTimer()
     cfg = get_settings()
 
     if _semaphore is None:
-        return JSONResponse(status_code=503, content={"error": "server_not_ready"})
+        _semaphore = asyncio.Semaphore(cfg.max_concurrent_requests)
 
     async with _semaphore:
         question = body.question

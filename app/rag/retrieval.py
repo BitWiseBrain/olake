@@ -210,17 +210,21 @@ async def retrieve(
     if store is None:
         store = get_store()
 
-    # BM25
+    # BM25 (always available via SQLite FTS5)
     bm25_results = store.bm25_search(query, top_k=cfg.bm25_top_k)
 
-    # Vector
-    loop = asyncio.get_event_loop()
-    query_vec, _ = await emb_mod.embed_query(query, index_dir=cfg.index_path)
-    vector_results = await loop.run_in_executor(
-        None, _vector_search_sync, query_vec, cfg.vector_top_k
-    )
+    # Vector search (optional — gracefully skip if embeddings/faiss unavailable)
+    vector_results: list[tuple[str, float]] = []
+    try:
+        loop = asyncio.get_event_loop()
+        query_vec, _ = await emb_mod.embed_query(query, index_dir=cfg.index_path)
+        vector_results = await loop.run_in_executor(
+            None, _vector_search_sync, query_vec, cfg.vector_top_k
+        )
+    except Exception as e:
+        log.info(f"Vector search skipped (degraded to BM25-only): {e}")
 
-    # RRF
+    # RRF fusion
     fused = reciprocal_rank_fusion(bm25_results, vector_results)
     top_ids = [cid for cid, _ in fused[:20]]
     chunk_map = {c.id: c for c in store.get_chunks_by_ids(top_ids)}

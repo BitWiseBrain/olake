@@ -14,9 +14,17 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-download fastembed model at build time (baked into image, zero runtime downloads)
+# Pre-download fastembed model if installed (baked into image, zero runtime downloads)
 ENV FASTEMBED_CACHE_PATH=/app/.cache/fastembed
-RUN python -c "from fastembed import TextEmbedding; print('Downloading BAAI/bge-small-en-v1.5...'); e = TextEmbedding(model_name='BAAI/bge-small-en-v1.5'); list(e.embed(['warmup'])); print('Embedding model ready')"
+RUN mkdir -p /app/.cache && \
+    python -c "try:
+    from fastembed import TextEmbedding
+    print('Downloading BAAI/bge-small-en-v1.5...')
+    e = TextEmbedding(model_name='BAAI/bge-small-en-v1.5')
+    list(e.embed(['warmup']))
+    print('Embedding model ready')
+except Exception as e:
+    print('Fastembed model download skipped:', e)"
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime

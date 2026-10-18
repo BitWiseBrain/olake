@@ -2,19 +2,23 @@
   "version": 2,
   "builds": [
     {
-      "src": "app/server.py",
+      "src": "api/index.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "app/server.py"
+      "dest": "api/index.py"
     }
   ],
   "env": {
     "APP_ENV": "production",
-    "DATA_DIR": "/tmp/olake-data",
-    "INDEX_DIR": "/tmp/olake-data/index"
+    "DATA_DIR": "data",
+    "INDEX_DIR": "data/index",
+    "EMBED_PROVIDER": "local",
+    "RERANK_PROVIDER": "off",
+    "RERANK": "off",
+    "SYNC_INTERVAL_MIN": "99999"
   }
 }
